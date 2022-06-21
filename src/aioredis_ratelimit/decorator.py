@@ -1,8 +1,6 @@
 import asyncio
 from functools import wraps
 
-from aioredis.lock import Lock
-
 from .exceptions import RateLimitExceeded
 from .redis import get_rate_key, get_lock_key
 
@@ -39,16 +37,21 @@ def ratelimit(calls, period, redis, raise_on_limit=False):
     """
 
     def decorator(coro):
-        rate_key = get_rate_key(coro)
         lock_key = get_lock_key(coro)
+        rate_key = get_rate_key(coro, unique=False)
 
         @wraps(coro)
         async def wrapper(*args, **kwargs):
-            nonlocal rate_key
 
-            async with Lock(redis=redis, name=lock_key):
-                counter = await redis.incr(rate_key)
-                key_pttl = await redis.pttl(rate_key)
+            async with redis.lock(name=lock_key):
+                rate_key_cur = await redis.get(rate_key)
+
+                if rate_key_cur is None:
+                    rate_key_cur = get_rate_key(coro)
+                    await redis.set(rate_key, rate_key_cur)
+
+                counter = await redis.incr(rate_key_cur)
+                key_pttl = await redis.pttl(rate_key_cur)
 
                 if counter > calls:
 
@@ -57,13 +60,14 @@ def ratelimit(calls, period, redis, raise_on_limit=False):
 
                     await asyncio.sleep(key_pttl / 1000)
 
+                    rate_key_cur = get_rate_key(coro)
+                    await redis.set(rate_key, rate_key_cur)
+                    await redis.incr(rate_key_cur)
                     key_pttl = -1
-                    rate_key = get_rate_key(coro)
-                    await redis.incr(rate_key)
 
                 if key_pttl == -1:
                     key_pttl = int(period.total_seconds() * 1000)
-                    await redis.pexpire(rate_key, key_pttl)
+                    await redis.pexpire(rate_key_cur, key_pttl)
 
             return await coro(*args, **kwargs)
 

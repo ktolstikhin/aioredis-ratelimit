@@ -7,8 +7,8 @@ def _get_coro_key(coro, prefix, unique=False):
     return key if not unique else key + '::' + uuid.uuid4().hex
 
 
-def get_rate_key(coro):
-    return _get_coro_key(coro, prefix='ratelimit', unique=True)
+def get_rate_key(coro, unique=True):
+    return _get_coro_key(coro, prefix='ratelimit', unique=unique)
 
 
 def get_lock_key(coro):
