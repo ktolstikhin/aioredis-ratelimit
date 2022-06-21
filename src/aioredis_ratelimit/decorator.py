@@ -43,7 +43,7 @@ def ratelimit(calls, period, redis, raise_on_limit=False):
         @wraps(coro)
         async def wrapper(*args, **kwargs):
 
-            async with redis.lock(name=lock_key):
+            async with redis.lock(name=lock_key, timeout=period.total_seconds()):
                 rate_key_cur = await redis.get(rate_key)
 
                 if rate_key_cur is None:
